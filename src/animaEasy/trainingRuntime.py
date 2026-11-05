@@ -5,6 +5,7 @@ import platform
 import re
 import shutil
 import stat
+import tempfile
 import threading
 import tomllib
 import urllib.request
@@ -144,7 +145,7 @@ class RuntimeManager:
         return environment
 
     def command(self, script: pathlib.Path, *arguments: str) -> list[str]:
-        return [findUv(), "run", "--locked", "--no-sync", "--project", str(self.root), "python", "-I", "-u", str(script), *arguments]
+        return [findUv(), "run", "--locked", "--no-sync", "--no-python-downloads", "--project", str(self.root), "python", "-I", "-u", str(script), *arguments]
 
     def downloadSource(self, cancel: threading.Event, onLine) -> pathlib.Path:
         archive = self.root / "trainer.zip"
@@ -190,14 +191,75 @@ class RuntimeManager:
             raise ValidationError(f"uv {detected} is too old for this managed setup; use uv {minimum} or newer. Older uv releases may not know how to download Python {RUNTIME_PYTHON}. Run uv self update, or update uv with the package manager used to install it. Reopen Anima Easy and retry setup. Python does not need to be installed manually. Installer: {executable}")
         return executable
 
+    def setupMessage(self, message: str, onLine) -> None:
+        with self.logPath.open("a", encoding="utf-8") as stream:
+            stream.write(f"\n[Anima Easy] {message}\n")
+        onLine(message)
+
+    def supportsHardlinks(self) -> bool:
+        with tempfile.TemporaryDirectory(prefix="link-check-", dir=self.root / "temp") as folder:
+            source = pathlib.Path(folder) / "source"
+            source.write_bytes(b"Anima Easy storage check")
+            try:
+                os.link(source, pathlib.Path(folder) / "link")
+            except OSError:
+                return False
+        return True
+
+    def preparePython(self, executable: str, runner: ProcessRunner, cancel: threading.Event, onLine) -> pathlib.Path:
+        output = []
+        def received(line: str) -> None:
+            output.append(line)
+            onLine(line)
+        onLine(f"Preparing managed Python {RUNTIME_PYTHON} in {self.root / 'python'}…")
+        command = [executable, "python", "install", "--no-bin", "--no-registry", RUNTIME_PYTHON]
+        code = runner.run(command, self.root, self.environment(), self.logPath, cancel, received)
+        if cancel.is_set():
+            raise InterruptedError("Python setup canceled.")
+        linkFailure = code != 0 and any("Failed to create Python minor version link directory" in line for line in output)
+        if code != 0 and not linkFailure:
+            raise ValidationError(f"Managed Python installation failed (exit {code}). See {self.logPath}.")
+        output.clear()
+        command = [executable, "python", "find", "--system", "--managed-python", "--no-python-downloads", RUNTIME_PYTHON]
+        code = runner.run(command, self.root, self.environment(), self.logPath, cancel, received, timeoutSeconds=30)
+        if cancel.is_set():
+            raise InterruptedError("Python setup canceled.")
+        if code != 0 or not output:
+            raise ValidationError(f"The exact managed Python {RUNTIME_PYTHON} could not be verified after installation. See {self.logPath}.")
+        try:
+            python = pathlib.Path(output[-1]).resolve(strict=True)
+        except (OSError, ValueError) as error:
+            raise ValidationError(f"The managed Python executable is unavailable: {error}. See {self.logPath}.") from error
+        if not python.is_file() or not python.is_relative_to((self.root / "python").resolve()):
+            raise ValidationError("Managed Python must remain inside the selected runtime storage. No system Python will be substituted.")
+        if linkFailure:
+            self.setupMessage("uv could not create its optional Python minor-version link. The versioned Python executable was verified; continuing directly without that link or moving Python to another drive.", onLine)
+        return python
+
+    def syncDependencies(self, executable: str, python: pathlib.Path, copyPackages: bool, runner: ProcessRunner, cancel: threading.Event, onLine) -> None:
+        onLine("Installing locked training dependencies in the isolated environment. Existing model weights are not downloaded or copied.")
+        command = [executable, "sync", "--locked", "--no-dev", "--no-build", "--no-python-downloads", "--python", str(python), "--project", str(self.root)]
+        if copyPackages:
+            command.extend(["--link-mode", "copy"])
+        code = runner.run(command, self.root, self.environment(), self.logPath, cancel, onLine)
+        if cancel.is_set():
+            raise InterruptedError("Runtime setup canceled; run setup again to repair the partial installation.")
+        if code != 0:
+            raise ValidationError(f"Dependency installation failed (exit {code}). See {self.logPath}.")
+
     def install(self, runner: ProcessRunner, cancel: threading.Event, onLine) -> dict:
         if platform.system() not in ("Windows", "Linux") or platform.machine().lower() not in ("amd64", "x86_64"):
             raise ValidationError("Managed training supports 64-bit Windows and Linux on x86-64 CPUs.")
         self.claimStorage()
         self.prepareProcessFolders()
         executable = self.checkUv(runner, cancel, onLine)
-        if not (self.root / ".venv").exists() and shutil.disk_usage(self.root).free < 12 * 1024**3:
-            raise ValidationError("Keep at least 12 GiB free for the managed runtime, plus space for models, caches, and checkpoints.")
+        copyPackages = not self.supportsHardlinks()
+        minimumSpace = 24 if copyPackages else 12
+        if copyPackages:
+            self.setupMessage("Hardlinks are unavailable on this storage. Packages will use copies, so a fresh setup requires at least 24 GiB free plus space for projects and checkpoints.", onLine)
+        if not (self.root / ".venv").exists() and shutil.disk_usage(self.root).free < minimumSpace * 1024**3:
+            raise ValidationError(f"Keep at least {minimumSpace} GiB free for this managed setup, plus space for models, caches, and checkpoints.")
+        python = self.preparePython(executable, runner, cancel, onLine)
         self.readyPath.unlink(missing_ok=True)
         archive = self.downloadSource(cancel, onLine)
         temporaryTrainer = self.root / "trainer.pending"
@@ -211,15 +273,9 @@ class RuntimeManager:
         temporaryTrainer.rename(self.trainerPath)
         for original, destination in RUNTIME_FILES.items():
             shutil.copyfile(ASSET_FOLDER / original, self.root / destination)
-        onLine("Installing locked training dependencies in a separate Python 3.12 environment. Existing model weights are not downloaded or copied.")
-        command = [executable, "sync", "--locked", "--no-dev", "--no-build", "--managed-python", "--python", RUNTIME_PYTHON, "--project", str(self.root)]
-        code = runner.run(command, self.root, self.environment(), self.logPath, cancel, onLine)
-        if cancel.is_set():
-            raise InterruptedError("Runtime setup canceled; run setup again to repair the partial installation.")
-        if code != 0:
-            raise ValidationError(f"Dependency installation failed (exit {code}). See {self.logPath}.")
+        self.syncDependencies(executable, python, copyPackages, runner, cancel, onLine)
         result = self.probe(runner, cancel, onLine, requireInstalled=False)
-        runtimeContract.writeData(self.readyPath, {"schemaVersion": 1, "runtimeId": RUNTIME_ID, "fingerprint": self.fingerprint, "trainerRevision": TRAINER_REVISION, "python": RUNTIME_PYTHON})
+        runtimeContract.writeData(self.readyPath, {"schemaVersion": 1, "runtimeId": RUNTIME_ID, "fingerprint": self.fingerprint, "trainerRevision": TRAINER_REVISION, "python": RUNTIME_PYTHON, "pythonExecutable": str(python), "packageLinkMode": "copy" if copyPackages else "default"})
         return result
 
     def verifyInstallation(self, cancel: threading.Event) -> None:

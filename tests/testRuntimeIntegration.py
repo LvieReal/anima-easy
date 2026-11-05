@@ -16,6 +16,7 @@ from animaEasy.errors import ValidationError
 from animaEasy.storage import readJson
 from animaEasy.trainingArguments import trainingArguments
 from animaEasy.trainingAssets import runtimeContract
+from animaEasy.trainingProcess import ProcessRunner
 from animaEasy.trainingRuns import verifyInputs
 from animaEasy.trainingRuntime import ASSET_FOLDER, RuntimeManager
 from animaEasy.ui.trainingView import logTail
@@ -149,3 +150,21 @@ def testNativeGpuCheckAndStopWithActualManagedProcess(sandboxFolder):
     from testDesktop import runScenario
 
     runScenario("managed", sandboxFolder / "state", script="trainingDesktopScenario.py")
+
+
+def testFailedPythonPrerequisitePreservesAWorkingInstallation():
+    runtime = RuntimeManager(backendRoot().parent.parent, backendRoot().parent)
+    assert runtime.installed()
+    paths = (runtime.readyPath, runtime.probePath, runtime.trainerPath / "anima_train_network.py", runtime.root / "runtimeBridge.py")
+    originals = {path: path.read_bytes() if path.exists() else None for path in paths}
+    configuration = runtime.root / "uv.toml"
+    assert not configuration.exists()
+    try:
+        configuration.write_text("python-downloads = [invalid\n", encoding="utf-8")
+        with pytest.raises(ValidationError, match="Managed Python installation failed"):
+            runtime.install(ProcessRunner(), threading.Event(), lambda line: None)
+        assert runtime.installed()
+        assert {path: path.read_bytes() if path.exists() else None for path in paths} == originals
+    finally:
+        configuration.unlink(missing_ok=True)
+    runtime.verifyInstallation(threading.Event())
