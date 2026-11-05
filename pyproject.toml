@@ -1,7 +1,48 @@
 [project]
 name = "anima-easy"
 version = "0.1.0"
-description = ""
+description = "A guided desktop workspace for Anima LoRA training."
 readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.14,<3.15"
+license = "MIT"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
+authors = [{ name = "LvieReal" }]
+dependencies = [
+    "dearpygui==2.3.1",
+    "filelock>=3.20,<4",
+    "numpy>=2.3,<3",
+    "pillow>=12,<13",
+    "platformdirs>=4.5,<5",
+    "psutil>=7.2,<8",
+    "safetensors>=0.8,<1",
+]
+
+[project.scripts]
+anima-easy = "animaEasy.app:main"
+
+[project.urls]
+Repository = "https://github.com/LvieReal/anima-easy"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/animaEasy"]
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "ruff>=0.14,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test*.py"]
+python_functions = ["test*"]
+markers = ["desktop: exercises a real Dear PyGui viewport; requires a display", "runtime: opt-in tests against the installed, pinned trainer; set ANIMA_EASY_TEST_RUNTIME"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 240
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]

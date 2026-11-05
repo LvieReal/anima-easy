@@ -1,0 +1,14 @@
+.venv/
+agent-changes.patch
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+artifacts/
+workspace/
+.animaEasy/
+*.safetensors
+*.log

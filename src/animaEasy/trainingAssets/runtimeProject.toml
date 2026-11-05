@@ -1,0 +1,44 @@
+[project]
+name = "anima-easy-training-runtime"
+version = "1.0.0"
+requires-python = "==3.12.16"
+dependencies = [
+    "torch==2.9.1+cu128",
+    "torchvision==0.24.1+cu128",
+    "accelerate==1.15.0",
+    "transformers==5.17.0",
+    "diffusers[torch]==0.40.0",
+    "ftfy==6.3.1",
+    "opencv-python==4.10.0.84",
+    "einops==0.7.0",
+    "bitsandbytes==0.48.1",
+    "lion-pytorch==0.2.3",
+    "schedulefree==1.4.1",
+    "pytorch-optimizer==3.10.0",
+    "prodigy-plus-schedule-free==1.9.2",
+    "prodigyopt==1.1.2",
+    "tensorboard==2.20.0",
+    "safetensors==0.8.0",
+    "toml==0.10.2",
+    "voluptuous==0.15.2",
+    "huggingface-hub==1.32.0",
+    "imagesize==1.4.1",
+    "numpy==2.2.6",
+    "pillow==12.0.0",
+    "rich==14.1.0",
+    "sentencepiece==0.2.1",
+    "psutil==7.2.2",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'win32' and platform_machine == 'AMD64'", "sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

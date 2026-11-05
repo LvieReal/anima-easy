@@ -1,0 +1,30 @@
+name: Checks
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked --group dev
+      - run: uv run ruff check .
+      - run: uv run pytest -m "not desktop"
+
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: sudo apt-get update && sudo apt-get install -y xvfb xauth xdotool libgl1 libgl1-mesa-dri libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 fonts-dejavu-core
+      - run: uv sync --locked --group dev
+      - run: xvfb-run -a uv run pytest -m desktop
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
