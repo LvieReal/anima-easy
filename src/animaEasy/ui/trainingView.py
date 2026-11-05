@@ -72,7 +72,7 @@ class TrainingView:
                 dearpygui.add_text("Choose a parent storage folder, such as D:\\Anima training or E:\\Anima training on Windows. The app manages anima-v1 inside it, including Python, downloads, and temporary files. Use folder saves the location; Set up runtime also applies this field before confirmation. Existing installations are not moved or deleted.", wrap=450)
             dearpygui.add_text("", tag="runtimeInstallPath", color=theme.colors.muted, wrap=0)
             dearpygui.add_text("Choose a storage drive before setup. Changing this folder does not move or delete an existing installation.", color=theme.colors.muted, wrap=0)
-            dearpygui.add_text("Setup downloads several GB into a separate environment. Keep 12 GiB free, plus room for caches and checkpoints. Model weights and NVIDIA drivers are not installed or replaced.", color=theme.colors.muted, wrap=0)
+            dearpygui.add_text("Setup downloads several GB into a separate environment. Keep 12 GiB free, or 24 GiB on drives requiring copies, plus room for projects and checkpoints. Model weights and NVIDIA drivers are not installed or replaced.", color=theme.colors.muted, wrap=0)
             with dearpygui.group(horizontal=True):
                 dearpygui.add_button(label="Use folder", tag="applyRuntimeStorage", height=36, callback=self.applyRuntimeStorage)
                 widgets.primaryButton("Set up runtime", tag="setupTrainingRuntime", callback=self.setup)
